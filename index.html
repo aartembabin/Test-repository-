@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Three.js Glass Cube — Cat Backdrop</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none; /* блокируем скролл / зум на тач */
+      cursor: grab;
+    }
+    canvas:active { cursor: grabbing; }
+  </style>
+</head>
+<body>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+
+    // --- Animated backdrop ---
+    // GIF не анимируется в ImageTexture; MP4 через VideoTexture — надёжный вариант.
+    // assets/funny-cat.gif (CC0 pixel cat) оставлен как запасной ассет.
+    const catVideo = document.createElement('video');
+    catVideo.src = 'assets/funny-cat.mp4';
+    catVideo.loop = true;
+    catVideo.muted = true;
+    catVideo.playsInline = true;
+    catVideo.setAttribute('playsinline', '');
+    catVideo.preload = 'auto';
+
+    const bgTexture = new THREE.VideoTexture(catVideo);
+    bgTexture.colorSpace = THREE.SRGBColorSpace;
+    bgTexture.minFilter = THREE.LinearFilter;
+    bgTexture.magFilter = THREE.LinearFilter;
+
+    // --- Scene ---
+    const scene = new THREE.Scene();
+    scene.background = bgTexture;
+
+    const camera = new THREE.PerspectiveCamera(
+      55,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      100
+    );
+    camera.position.set(0, 0, 4.2);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    document.body.appendChild(renderer.domElement);
+
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    pmremGenerator.compileEquirectangularShader();
+    let envFrame = 0;
+
+    function refreshEnvironment() {
+      const envScene = new THREE.Scene();
+      envScene.background = bgTexture;
+      const rt = pmremGenerator.fromScene(envScene, 0.04);
+      if (scene.environment) scene.environment.dispose();
+      scene.environment = rt.texture;
+      rt.dispose();
+    }
+
+    // --- Lights ---
+    scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+    const key = new THREE.DirectionalLight(0xffffff, 1.1);
+    key.position.set(4, 6, 5);
+    scene.add(key);
+    const rim = new THREE.DirectionalLight(0xaaccff, 0.55);
+    rim.position.set(-5, 2, -3);
+    scene.add(rim);
+    const fill = new THREE.PointLight(0xffeedd, 0.45, 20);
+    fill.position.set(-2, -1, 3);
+    scene.add(fill);
+
+    // --- Glass cube ---
+    const glass = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      metalness: 0.0,
+      roughness: 0.04,
+      transmission: 1.0,
+      ior: 1.52,
+      thickness: 1.35,
+      specularIntensity: 1.0,
+      envMapIntensity: 1.4,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.02,
+      transparent: true,
+      side: THREE.DoubleSide,
+    });
+
+    const cube = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1.7, 1.7), glass);
+    scene.add(cube);
+
+    // --- Pointer / touch rotation ---
+    let isDragging = false;
+    let prevX = 0;
+    let prevY = 0;
+    const ROTATION_SPEED = 0.005;
+
+    let targetRotX = 0.25;
+    let targetRotY = 0.4;
+    cube.rotation.set(targetRotX, targetRotY, 0);
+
+    function onPointerDown(e) {
+      isDragging = true;
+      prevX = e.clientX;
+      prevY = e.clientY;
+      e.preventDefault();
+    }
+
+    function onPointerMove(e) {
+      if (!isDragging) return;
+      const dx = e.clientX - prevX;
+      const dy = e.clientY - prevY;
+      prevX = e.clientX;
+      prevY = e.clientY;
+      targetRotY += dx * ROTATION_SPEED;
+      targetRotX += dy * ROTATION_SPEED;
+      e.preventDefault();
+    }
+
+    function onPointerUp(e) {
+      isDragging = false;
+      e.preventDefault();
+    }
+
+    const canvas = renderer.domElement;
+    canvas.addEventListener('pointerdown', onPointerDown, { passive: false });
+    canvas.addEventListener('pointermove', onPointerMove, { passive: false });
+    canvas.addEventListener('pointerup', onPointerUp, { passive: false });
+    canvas.addEventListener('pointercancel', onPointerUp, { passive: false });
+    canvas.addEventListener('pointerleave', onPointerUp, { passive: false });
+    canvas.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+    canvas.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+
+    function onResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    window.addEventListener('resize', onResize);
+
+    let ready = false;
+    catVideo.addEventListener('loadeddata', () => {
+      catVideo.play().catch(() => {});
+      refreshEnvironment();
+      ready = true;
+    });
+
+    const DAMPING = 0.12;
+    function animate() {
+      requestAnimationFrame(animate);
+      if (ready) {
+        envFrame += 1;
+        if (envFrame % 15 === 0) refreshEnvironment();
+      }
+      cube.rotation.x += (targetRotX - cube.rotation.x) * DAMPING;
+      cube.rotation.y += (targetRotY - cube.rotation.y) * DAMPING;
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>

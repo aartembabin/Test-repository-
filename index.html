@@ -28,32 +28,21 @@
   <script type="module">
     import * as THREE from 'three';
 
-    // --- Animated GIF backdrop (GIF не анимируется в ImageTexture — рисуем кадры на canvas) ---
-    const catImg = new Image();
-    catImg.src = 'assets/funny-cat.gif';
+    // --- Animated backdrop ---
+    // GIF не анимируется в ImageTexture; MP4 через VideoTexture — надёжный вариант.
+    // assets/funny-cat.gif (CC0 pixel cat) оставлен как запасной ассет.
+    const catVideo = document.createElement('video');
+    catVideo.src = 'assets/funny-cat.mp4';
+    catVideo.loop = true;
+    catVideo.muted = true;
+    catVideo.playsInline = true;
+    catVideo.setAttribute('playsinline', '');
+    catVideo.preload = 'auto';
 
-    const bgCanvas = document.createElement('canvas');
-    bgCanvas.width = 1024;
-    bgCanvas.height = 576;
-    const bgCtx = bgCanvas.getContext('2d');
-    const bgTexture = new THREE.CanvasTexture(bgCanvas);
+    const bgTexture = new THREE.VideoTexture(catVideo);
     bgTexture.colorSpace = THREE.SRGBColorSpace;
     bgTexture.minFilter = THREE.LinearFilter;
     bgTexture.magFilter = THREE.LinearFilter;
-
-    function drawBackdrop() {
-      if (!catImg.complete || catImg.naturalWidth === 0) return;
-      const cw = bgCanvas.width;
-      const ch = bgCanvas.height;
-      const iw = catImg.naturalWidth;
-      const ih = catImg.naturalHeight;
-      // cover — заполняем весь фон
-      const scale = Math.max(cw / iw, ch / ih);
-      const w = iw * scale;
-      const h = ih * scale;
-      bgCtx.drawImage(catImg, (cw - w) * 0.5, (ch - h) * 0.5, w, h);
-      bgTexture.needsUpdate = true;
-    }
 
     // --- Scene ---
     const scene = new THREE.Scene();
@@ -75,7 +64,6 @@
     renderer.toneMappingExposure = 1.05;
     document.body.appendChild(renderer.domElement);
 
-    // PMREM env map — подсветка и преломление на стекле
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     pmremGenerator.compileEquirectangularShader();
     let envFrame = 0;
@@ -84,7 +72,7 @@
       const envScene = new THREE.Scene();
       envScene.background = bgTexture;
       const rt = pmremGenerator.fromScene(envScene, 0.04);
-      if (scene.environment) scene.environment.dispose?.();
+      if (scene.environment) scene.environment.dispose();
       scene.environment = rt.texture;
       rt.dispose();
     }
@@ -101,7 +89,7 @@
     fill.position.set(-2, -1, 3);
     scene.add(fill);
 
-    // --- Glass cube (MeshPhysicalMaterial + transmission) ---
+    // --- Glass cube ---
     const glass = new THREE.MeshPhysicalMaterial({
       color: 0xffffff,
       metalness: 0.0,
@@ -162,7 +150,6 @@
     canvas.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
     canvas.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
 
-    // --- Resize ---
     function onResize() {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
@@ -172,21 +159,18 @@
     window.addEventListener('resize', onResize);
 
     let ready = false;
-    catImg.onload = () => {
-      drawBackdrop();
+    catVideo.addEventListener('loadeddata', () => {
+      catVideo.play().catch(() => {});
       refreshEnvironment();
       ready = true;
-    };
+    });
 
-    // --- Render loop ---
     const DAMPING = 0.12;
     function animate() {
       requestAnimationFrame(animate);
       if (ready) {
-        drawBackdrop();
-        // обновляем env map периодически, чтобы отражения на стекле тоже «жили»
         envFrame += 1;
-        if (envFrame % 12 === 0) refreshEnvironment();
+        if (envFrame % 15 === 0) refreshEnvironment();
       }
       cube.rotation.x += (targetRotX - cube.rotation.x) * DAMPING;
       cube.rotation.y += (targetRotY - cube.rotation.y) * DAMPING;

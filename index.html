@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Three.js Touch Cube</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a0f; }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none; /* prevent browser scroll/zoom on touch */
+      cursor: grab;
+    }
+    canvas:active { cursor: grabbing; }
+  </style>
+</head>
+<body>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+
+    // --- Scene setup ---
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0a0f);
+
+    const camera = new THREE.PerspectiveCamera(
+      60,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      100
+    );
+    camera.position.z = 4;
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // --- Lights ---
+    scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+    dir.position.set(3, 5, 4);
+    scene.add(dir);
+
+    // --- Cube with distinct face colors ---
+    const materials = [
+      new THREE.MeshStandardMaterial({ color: 0xe74c3c, roughness: 0.35, metalness: 0.1 }), // right  – red
+      new THREE.MeshStandardMaterial({ color: 0x3498db, roughness: 0.35, metalness: 0.1 }), // left   – blue
+      new THREE.MeshStandardMaterial({ color: 0x2ecc71, roughness: 0.35, metalness: 0.1 }), // top    – green
+      new THREE.MeshStandardMaterial({ color: 0xf1c40f, roughness: 0.35, metalness: 0.1 }), // bottom – yellow
+      new THREE.MeshStandardMaterial({ color: 0xe67e22, roughness: 0.35, metalness: 0.1 }), // front  – orange
+      new THREE.MeshStandardMaterial({ color: 0x9b59b6, roughness: 0.35, metalness: 0.1 }), // back   – purple
+    ];
+    const cube = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.6, 1.6), materials);
+    scene.add(cube);
+
+    // --- Pointer / touch rotation ---
+    let isDragging = false;
+    let prevX = 0;
+    let prevY = 0;
+    const ROTATION_SPEED = 0.005;
+
+    // Target rotation for smooth lerp
+    let targetRotX = 0.35;
+    let targetRotY = 0.45;
+    cube.rotation.x = targetRotX;
+    cube.rotation.y = targetRotY;
+
+    function onPointerDown(e) {
+      isDragging = true;
+      prevX = e.clientX;
+      prevY = e.clientY;
+      e.preventDefault();
+    }
+
+    function onPointerMove(e) {
+      if (!isDragging) return;
+      const dx = e.clientX - prevX;
+      const dy = e.clientY - prevY;
+      prevX = e.clientX;
+      prevY = e.clientY;
+      // Drag horizontally → yaw (Y); vertically → pitch (X)
+      targetRotY += dx * ROTATION_SPEED;
+      targetRotX += dy * ROTATION_SPEED;
+      e.preventDefault();
+    }
+
+    function onPointerUp(e) {
+      isDragging = false;
+      e.preventDefault();
+    }
+
+    const canvas = renderer.domElement;
+    canvas.addEventListener('pointerdown', onPointerDown, { passive: false });
+    canvas.addEventListener('pointermove', onPointerMove, { passive: false });
+    canvas.addEventListener('pointerup', onPointerUp, { passive: false });
+    canvas.addEventListener('pointercancel', onPointerUp, { passive: false });
+    canvas.addEventListener('pointerleave', onPointerUp, { passive: false });
+
+    // Block page scroll while interacting with the canvas
+    canvas.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+    canvas.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+
+    // --- Resize ---
+    function onResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    window.addEventListener('resize', onResize);
+
+    // --- Render loop ---
+    const DAMPING = 0.12; // smooth interpolation toward target rotation
+    function animate() {
+      requestAnimationFrame(animate);
+      cube.rotation.x += (targetRotX - cube.rotation.x) * DAMPING;
+      cube.rotation.y += (targetRotY - cube.rotation.y) * DAMPING;
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>

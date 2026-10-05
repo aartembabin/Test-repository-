@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Three.js Touch Cube</title>
+  <title>Three.js Glass Cube — Cat Backdrop</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a0f; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
     canvas {
       display: block;
       width: 100%;
       height: 100%;
-      touch-action: none; /* prevent browser scroll/zoom on touch */
+      touch-action: none; /* блокируем скролл / зум на тач */
       cursor: grab;
     }
     canvas:active { cursor: grabbing; }
@@ -28,39 +28,96 @@
   <script type="module">
     import * as THREE from 'three';
 
-    // --- Scene setup ---
+    // --- Animated GIF backdrop (GIF не анимируется в ImageTexture — рисуем кадры на canvas) ---
+    const catImg = new Image();
+    catImg.src = 'assets/funny-cat.gif';
+
+    const bgCanvas = document.createElement('canvas');
+    bgCanvas.width = 1024;
+    bgCanvas.height = 576;
+    const bgCtx = bgCanvas.getContext('2d');
+    const bgTexture = new THREE.CanvasTexture(bgCanvas);
+    bgTexture.colorSpace = THREE.SRGBColorSpace;
+    bgTexture.minFilter = THREE.LinearFilter;
+    bgTexture.magFilter = THREE.LinearFilter;
+
+    function drawBackdrop() {
+      if (!catImg.complete || catImg.naturalWidth === 0) return;
+      const cw = bgCanvas.width;
+      const ch = bgCanvas.height;
+      const iw = catImg.naturalWidth;
+      const ih = catImg.naturalHeight;
+      // cover — заполняем весь фон
+      const scale = Math.max(cw / iw, ch / ih);
+      const w = iw * scale;
+      const h = ih * scale;
+      bgCtx.drawImage(catImg, (cw - w) * 0.5, (ch - h) * 0.5, w, h);
+      bgTexture.needsUpdate = true;
+    }
+
+    // --- Scene ---
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0a0f);
+    scene.background = bgTexture;
 
     const camera = new THREE.PerspectiveCamera(
-      60,
+      55,
       window.innerWidth / window.innerHeight,
       0.1,
       100
     );
-    camera.position.z = 4;
+    camera.position.set(0, 0, 4.2);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
     document.body.appendChild(renderer.domElement);
 
-    // --- Lights ---
-    scene.add(new THREE.AmbientLight(0xffffff, 0.45));
-    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-    dir.position.set(3, 5, 4);
-    scene.add(dir);
+    // PMREM env map — подсветка и преломление на стекле
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    pmremGenerator.compileEquirectangularShader();
+    let envFrame = 0;
 
-    // --- Cube with distinct face colors ---
-    const materials = [
-      new THREE.MeshStandardMaterial({ color: 0xe74c3c, roughness: 0.35, metalness: 0.1 }), // right  – red
-      new THREE.MeshStandardMaterial({ color: 0x3498db, roughness: 0.35, metalness: 0.1 }), // left   – blue
-      new THREE.MeshStandardMaterial({ color: 0x2ecc71, roughness: 0.35, metalness: 0.1 }), // top    – green
-      new THREE.MeshStandardMaterial({ color: 0xf1c40f, roughness: 0.35, metalness: 0.1 }), // bottom – yellow
-      new THREE.MeshStandardMaterial({ color: 0xe67e22, roughness: 0.35, metalness: 0.1 }), // front  – orange
-      new THREE.MeshStandardMaterial({ color: 0x9b59b6, roughness: 0.35, metalness: 0.1 }), // back   – purple
-    ];
-    const cube = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.6, 1.6), materials);
+    function refreshEnvironment() {
+      const envScene = new THREE.Scene();
+      envScene.background = bgTexture;
+      const rt = pmremGenerator.fromScene(envScene, 0.04);
+      if (scene.environment) scene.environment.dispose?.();
+      scene.environment = rt.texture;
+      rt.dispose();
+    }
+
+    // --- Lights ---
+    scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+    const key = new THREE.DirectionalLight(0xffffff, 1.1);
+    key.position.set(4, 6, 5);
+    scene.add(key);
+    const rim = new THREE.DirectionalLight(0xaaccff, 0.55);
+    rim.position.set(-5, 2, -3);
+    scene.add(rim);
+    const fill = new THREE.PointLight(0xffeedd, 0.45, 20);
+    fill.position.set(-2, -1, 3);
+    scene.add(fill);
+
+    // --- Glass cube (MeshPhysicalMaterial + transmission) ---
+    const glass = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      metalness: 0.0,
+      roughness: 0.04,
+      transmission: 1.0,
+      ior: 1.52,
+      thickness: 1.35,
+      specularIntensity: 1.0,
+      envMapIntensity: 1.4,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.02,
+      transparent: true,
+      side: THREE.DoubleSide,
+    });
+
+    const cube = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1.7, 1.7), glass);
     scene.add(cube);
 
     // --- Pointer / touch rotation ---
@@ -69,11 +126,9 @@
     let prevY = 0;
     const ROTATION_SPEED = 0.005;
 
-    // Target rotation for smooth lerp
-    let targetRotX = 0.35;
-    let targetRotY = 0.45;
-    cube.rotation.x = targetRotX;
-    cube.rotation.y = targetRotY;
+    let targetRotX = 0.25;
+    let targetRotY = 0.4;
+    cube.rotation.set(targetRotX, targetRotY, 0);
 
     function onPointerDown(e) {
       isDragging = true;
@@ -88,7 +143,6 @@
       const dy = e.clientY - prevY;
       prevX = e.clientX;
       prevY = e.clientY;
-      // Drag horizontally → yaw (Y); vertically → pitch (X)
       targetRotY += dx * ROTATION_SPEED;
       targetRotX += dy * ROTATION_SPEED;
       e.preventDefault();
@@ -105,8 +159,6 @@
     canvas.addEventListener('pointerup', onPointerUp, { passive: false });
     canvas.addEventListener('pointercancel', onPointerUp, { passive: false });
     canvas.addEventListener('pointerleave', onPointerUp, { passive: false });
-
-    // Block page scroll while interacting with the canvas
     canvas.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
     canvas.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
 
@@ -119,10 +171,23 @@
     }
     window.addEventListener('resize', onResize);
 
+    let ready = false;
+    catImg.onload = () => {
+      drawBackdrop();
+      refreshEnvironment();
+      ready = true;
+    };
+
     // --- Render loop ---
-    const DAMPING = 0.12; // smooth interpolation toward target rotation
+    const DAMPING = 0.12;
     function animate() {
       requestAnimationFrame(animate);
+      if (ready) {
+        drawBackdrop();
+        // обновляем env map периодически, чтобы отражения на стекле тоже «жили»
+        envFrame += 1;
+        if (envFrame % 12 === 0) refreshEnvironment();
+      }
       cube.rotation.x += (targetRotX - cube.rotation.x) * DAMPING;
       cube.rotation.y += (targetRotY - cube.rotation.y) * DAMPING;
       renderer.render(scene, camera);
